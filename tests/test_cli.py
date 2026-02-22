@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from depaudit.cli import app
+from depaudit.model import ScanResult
 
 runner = CliRunner()
 
@@ -98,3 +99,84 @@ def test_cli_diff_json(tmp_path: Path) -> None:
     assert payload["version_changes"][0]["name"] == "requests"
     assert payload["added"][0]["name"] == "flask"
     assert payload["removed"] == []
+
+
+def test_cli_scan_json_and_parse_errors_exit_code(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
+
+    def fake_scan_repo(path: Path, max_workers: int | None = None) -> ScanResult:
+        return ScanResult(
+            repo_root=str(path),
+            dependencies=[],
+            errors=["requirements.txt: failed to parse"],
+        )
+
+    monkeypatch.setattr("depaudit.cli.scan_repo", fake_scan_repo)
+
+    result = runner.invoke(app, ["scan", str(tmp_path), "--json"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout.splitlines()[0])
+    assert payload["parse_errors"] == [{"file": "requirements.txt", "error": "failed to parse"}]
+    assert "Parse Errors" in result.stdout
+
+
+def test_cli_summary_quiet_prints_only_errors(monkeypatch, tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
+
+    def fake_scan_repo(path: Path, max_workers: int | None = None) -> ScanResult:
+        return ScanResult(
+            repo_root=str(path),
+            dependencies=[],
+            errors=["requirements.txt: bad data"],
+        )
+
+    monkeypatch.setattr("depaudit.cli.scan_repo", fake_scan_repo)
+
+    result = runner.invoke(app, ["summary", str(tmp_path), "--quiet"])
+
+    assert result.exit_code == 2
+    assert "Dependencies by Ecosystem" not in result.stdout
+    assert "Parse Errors" in result.stdout
+
+
+def test_cli_duplicates_json_output(tmp_path: Path) -> None:
+    (tmp_path / "package-lock.json").write_text(
+        json.dumps(
+            {
+                "name": "demo",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"dependencies": {"left-pad": "1.1.0", "left-pad-alt": "1.3.0"}},
+                    "node_modules/left-pad": {"version": "1.1.0"},
+                    "node_modules/left-pad-alt": {"name": "left-pad", "version": "1.3.0"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["duplicates", str(tmp_path), "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["duplicates"] == [
+        {"ecosystem": "npm", "name": "left-pad", "versions": ["1.1.0", "1.3.0"]}
+    ]
+
+
+def test_cli_export_stdout_dash(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["export", str(tmp_path), "--out", "-"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["dependencies"][0]["name"] == "requests"
+
+
+def test_cli_scan_missing_path_returns_fatal() -> None:
+    result = runner.invoke(app, ["scan", "./definitely-missing-path-xyz"])
+
+    assert result.exit_code == 1
+    assert "Cannot read path" in result.stdout
