@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from depaudit.diffing import compare_dependency_lists
 from depaudit.licenses import collect_license_findings, summarize_license_findings
 from depaudit.policy import evaluate_policy, load_policy
 from depaudit.report import build_export_document, print_duplicates, print_summary
@@ -22,9 +23,13 @@ console = Console()
 @app.command("scan")
 def scan_cmd(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
 ) -> None:
     """Scan a repository for supported dependency manifests."""
-    result = scan_repo(path)
+    result = scan_repo(path, max_workers=max_workers)
 
     table = Table(title="Dependencies")
     table.add_column("ecosystem")
@@ -51,9 +56,13 @@ def scan_cmd(
 def summary(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
     top: Annotated[int, typer.Option("--top", min=1, help="Top N dependencies to show.")] = 10,
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
 ) -> None:
     """Show summary views for ecosystem counts, top dependencies, and parse errors."""
-    result = scan_repo(path)
+    result = scan_repo(path, max_workers=max_workers)
     print_summary(console, result, top)
     if result.errors:
         raise typer.Exit(code=2)
@@ -62,9 +71,13 @@ def summary(
 @app.command()
 def duplicates(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
 ) -> None:
     """List dependencies that appear with multiple versions."""
-    result = scan_repo(path)
+    result = scan_repo(path, max_workers=max_workers)
     print_duplicates(console, result.dependencies)
     if result.errors:
         raise typer.Exit(code=2)
@@ -75,9 +88,13 @@ def export(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
     output_format: Annotated[str, typer.Option("--format", help="Export format.")] = "json",
     out: Annotated[Path | None, typer.Option("--out", help="Write export to a file path.")] = None,
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
 ) -> None:
     """Export dependency scan results in a stable schema."""
-    result = scan_repo(path)
+    result = scan_repo(path, max_workers=max_workers)
 
     if output_format != "json":
         console.print(f"[red]Unsupported format: {output_format}[/red]")
@@ -99,11 +116,70 @@ def export(
 
 
 @app.command()
+def diff(
+    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    baseline: Annotated[Path, typer.Option("--baseline", exists=True, dir_okay=False)] = ...,
+    as_json: Annotated[bool, typer.Option("--json", help="Output diff as deterministic JSON.")] = False,
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
+) -> None:
+    """Diff current dependency inventory against an exported baseline."""
+    baseline_payload = json.loads(baseline.read_text(encoding="utf-8"))
+    baseline_deps = baseline_payload.get("dependencies", []) if isinstance(baseline_payload, dict) else []
+
+    result = scan_repo(path, max_workers=max_workers)
+    current_deps = build_export_document(result).dependencies
+    diff_result = compare_dependency_lists(baseline_deps, current_deps)
+
+    if as_json:
+        typer.echo(json.dumps(diff_result.to_dict(), sort_keys=True, separators=(",", ":")))
+    else:
+        table_added = Table(title="Added Dependencies")
+        table_added.add_column("ecosystem")
+        table_added.add_column("name")
+        table_added.add_column("version")
+        for row in diff_result.added:
+            table_added.add_row(row["ecosystem"], row["name"], row["version"])
+        console.print(table_added)
+
+        table_removed = Table(title="Removed Dependencies")
+        table_removed.add_column("ecosystem")
+        table_removed.add_column("name")
+        table_removed.add_column("version")
+        for row in diff_result.removed:
+            table_removed.add_row(row["ecosystem"], row["name"], row["version"])
+        console.print(table_removed)
+
+        table_changes = Table(title="Version Changes")
+        table_changes.add_column("ecosystem")
+        table_changes.add_column("name")
+        table_changes.add_column("from")
+        table_changes.add_column("to")
+        for row in diff_result.version_changes:
+            table_changes.add_row(
+                row["ecosystem"],
+                row["name"],
+                row["from_version"],
+                row["to_version"],
+            )
+        console.print(table_changes)
+
+    if result.errors:
+        raise typer.Exit(code=2)
+
+
+@app.command()
 def licenses(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
 ) -> None:
     """Best-effort offline license summary from manifests and discovered components."""
-    result = scan_repo(path)
+    result = scan_repo(path, max_workers=max_workers)
     findings = collect_license_findings(path.resolve(), result.dependencies)
     known_count, unknown_count, unknowns = summarize_license_findings(findings)
 
@@ -130,9 +206,13 @@ def policy_check(
     policy: Annotated[
         Path, typer.Option("--policy", exists=True, dir_okay=False)
     ] = Path("policy.yaml"),
+    max_workers: Annotated[
+        int | None,
+        typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
+    ] = None,
 ) -> None:
     """Evaluate dependency and license findings against a policy file."""
-    result = scan_repo(path)
+    result = scan_repo(path, max_workers=max_workers)
     findings = collect_license_findings(path.resolve(), result.dependencies)
     policy_data = load_policy(policy)
     violations = evaluate_policy(result.dependencies, findings, policy_data)

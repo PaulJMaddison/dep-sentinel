@@ -68,3 +68,21 @@ def test_scan_repo_runs_parsers_and_aggregates_errors_without_crashing(
     assert "broken parse" in result.errors[0]
     assert result.stats["parse_errors"] == 1
     assert result.stats["dependencies_found"] == 1
+
+
+def test_scan_repo_supports_max_workers_and_package_root_count(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "service_a").mkdir(parents=True)
+    (repo / "service_b").mkdir(parents=True)
+    (repo / "service_a" / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+    (repo / "service_b" / "package-lock.json").write_text(
+        '{"name":"b","lockfileVersion":3,"dependencies":{"lodash":{"version":"4.17.21"}}}',
+        encoding="utf-8",
+    )
+
+    result = scan_repo(repo, max_workers=2)
+
+    names = sorted(dep.name for dep in result.dependencies)
+    assert "requests" in names
+    assert "lodash" in names
+    assert result.stats["package_roots"] == 2
