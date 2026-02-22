@@ -53,14 +53,35 @@ def top_dependencies(dependencies: list[Dependency], limit: int = 10) -> list[tu
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
 
 
+def summary_counts(result: ScanResult) -> dict[str, object]:
+    duplicates = duplicates_view(result.dependencies)
+    return {
+        "ecosystem_counts": count_by_ecosystem(result.dependencies),
+        "total_dependencies": len(result.dependencies),
+        "unique_components": len({(dep.ecosystem.value, dep.name) for dep in result.dependencies}),
+        "duplicate_components": len(duplicates),
+        "parse_error_count": len(result.errors),
+    }
+
+
 def print_summary(console: Console, result: ScanResult, top_n: int = 10) -> None:
-    ecosystem_counts = count_by_ecosystem(result.dependencies)
+    counts = summary_counts(result)
+
     eco_table = Table(title="Dependencies by Ecosystem")
     eco_table.add_column("ecosystem")
     eco_table.add_column("count", justify="right")
-    for ecosystem, count in ecosystem_counts.items():
+    for ecosystem, count in counts["ecosystem_counts"].items():
         eco_table.add_row(ecosystem, str(count))
     console.print(eco_table)
+
+    summary_table = Table(title="Summary")
+    summary_table.add_column("metric")
+    summary_table.add_column("count", justify="right")
+    summary_table.add_row("Total deps", str(counts["total_dependencies"]))
+    summary_table.add_row("Unique components", str(counts["unique_components"]))
+    summary_table.add_row("Duplicates", str(counts["duplicate_components"]))
+    summary_table.add_row("Parse errors", str(counts["parse_error_count"]))
+    console.print(summary_table)
 
     top_table = Table(title=f"Top {top_n} Dependencies by Frequency")
     top_table.add_column("dependency")
