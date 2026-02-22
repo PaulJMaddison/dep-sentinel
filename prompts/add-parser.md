@@ -1,34 +1,36 @@
 # add-parser
 
-Create a new parser for this project.
+Create a Codex workflow prompt that scaffolds a new dependency parser from concrete inputs.
 
-## Args
-- `ECOSYSTEM`: short ecosystem id (e.g., `rubygems`, `composer`, `pnpm`).
+ARGS: `ECOSYSTEM`, `FILES`, `EXAMPLES`
+
+- `ECOSYSTEM`: short ecosystem id (for example `rubygems`, `composer`, `pnpm`).
 - `FILES`: comma-separated manifest/lockfile names the parser should support.
-- `EXAMPLES`: one or more concrete dependency examples to turn into fixtures + tests.
+- `EXAMPLES`: one or more concrete dependency examples to turn into fixtures and tests.
 
-## What to do
+## Required workflow
 1. **Scaffold parser module**
    - Add `src/depaudit/parsers/{ECOSYSTEM}.py`.
-   - Implement a parser class/function consistent with existing parser patterns in `src/depaudit/parsers/`.
+   - Implement parsing logic consistent with existing parser patterns in `src/depaudit/parsers/`.
    - Reuse shared model/types from `src/depaudit/parsers/base.py` and `src/depaudit/model.py`.
 
-2. **Register parser**
+2. **Add parser to registry**
    - Update `src/depaudit/parsers/registry.py` to map `FILES` to the new parser.
    - Update `src/depaudit/parsers/__init__.py` exports if needed.
 
-3. **Generate tests + fixtures from EXAMPLES**
-   - Add fixture files under `tests/fixtures/` reflecting `FILES` and the `EXAMPLES` input.
+3. **Generate tests and fixtures from `EXAMPLES`**
+   - Add fixture files under `tests/fixtures/` reflecting `FILES` and `EXAMPLES`.
    - Add focused parser tests in `tests/` that:
      - load fixtures,
      - parse dependencies,
-     - assert name/version extraction and any direct/transitive metadata used by this repo.
+     - assert expected name/version extraction,
+     - assert direct/transitive metadata used by this repo.
 
-4. **Validation**
-   - Run targeted tests first, then full parser/CLI suites impacted by the change.
-   - Include edge cases implied by `EXAMPLES` (comments, version ranges, missing fields, etc.).
+4. **Validate implementation**
+   - Run targeted parser tests first, then affected parser/CLI suites.
+   - Include edge cases implied by `EXAMPLES` (comments, version ranges, missing fields, malformed entries).
 
-## Output requirements
-- Show a concise change summary grouped by parser, registry, and tests.
-- Include exact test commands executed and results.
-- If something cannot be implemented from the provided args, state the gap and provide a minimal TODO patch.
+## Response requirements
+- Return a concise summary grouped by parser module, registry wiring, and tests/fixtures.
+- Include exact test commands executed and outcomes.
+- If args are insufficient, state the gap and produce a minimal TODO patch rather than failing silently.
