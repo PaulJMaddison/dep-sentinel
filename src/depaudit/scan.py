@@ -122,7 +122,8 @@ class RepoScanner:
                         dependencies.extend(future.result())
                     except Exception as exc:  # pragma: no cover - explicit defensive behavior
                         rel_path = manifest.relative_to(self.repo_root).as_posix()
-                        errors.append(f"{parser_name} failed to parse {rel_path}: {exc}")
+                        short_message = _short_error_message(exc)
+                        errors.append(f"{rel_path}: {short_message}")
 
         return ScanResult.from_parts(
             repo_root=self.repo_root,
@@ -163,3 +164,13 @@ class RepoScanner:
 
 def scan_repo(repo_root: Path, max_workers: int | None = None) -> ScanResult:
     return RepoScanner(repo_root).scan(max_workers=max_workers)
+
+
+def _short_error_message(exc: Exception) -> str:
+    message = str(exc).strip().splitlines()[0] if str(exc).strip() else ""
+    exc_name = exc.__class__.__name__
+    if not message:
+        return exc_name
+    if message.startswith(exc_name):
+        return message
+    return f"{exc_name}: {message}"

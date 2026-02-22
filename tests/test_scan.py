@@ -65,7 +65,7 @@ def test_scan_repo_runs_parsers_and_aggregates_errors_without_crashing(
     assert len(result.dependencies) == 1
     assert result.dependencies[0].name == "demo"
     assert len(result.errors) == 1
-    assert "broken parse" in result.errors[0]
+    assert result.errors[0].startswith("requirements.txt: ValueError: broken parse")
     assert result.stats["parse_errors"] == 1
     assert result.stats["dependencies_found"] == 1
 

@@ -234,3 +234,20 @@ def test_cli_scan_missing_path_returns_fatal() -> None:
 
     assert result.exit_code == 1
     assert "Cannot read path" in result.stdout
+
+
+def test_cli_scan_fail_soft_for_malformed_json_toml_and_xml(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+    (tmp_path / "package-lock.json").write_text('{"dependencies":', encoding="utf-8")
+    (tmp_path / "Cargo.lock").write_text('[[package]\nname = "serde"\n', encoding="utf-8")
+    (tmp_path / "pom.xml").write_text('<project><dependencies><dependency></project>', encoding="utf-8")
+
+    result = runner.invoke(app, ["scan", str(tmp_path), "--json"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout.splitlines()[0])
+    assert any(dep["name"] == "requests" for dep in payload["dependencies"])
+
+    error_files = {entry["file"] for entry in payload["parse_errors"]}
+    assert error_files == {"Cargo.lock", "package-lock.json", "pom.xml"}
+    assert "Parse Errors" in result.stdout
