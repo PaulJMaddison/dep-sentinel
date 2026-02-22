@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -9,6 +10,13 @@ from depaudit.cli import app
 from depaudit.model import ScanResult
 
 runner = CliRunner()
+
+
+def _copy_fixture_repo(tmp_path: Path, fixture_name: str) -> Path:
+    src = Path(__file__).parent / "fixtures" / "repos" / fixture_name
+    dst = tmp_path / fixture_name
+    shutil.copytree(src, dst)
+    return dst
 
 
 def test_cli_scan_default_path(tmp_path: Path) -> None:
@@ -181,28 +189,34 @@ def test_cli_summary_quiet_prints_only_errors(monkeypatch, tmp_path: Path) -> No
 
 
 def test_cli_duplicates_json_output(tmp_path: Path) -> None:
-    (tmp_path / "package-lock.json").write_text(
-        json.dumps(
-            {
-                "name": "demo",
-                "lockfileVersion": 3,
-                "packages": {
-                    "": {"dependencies": {"left-pad": "1.1.0", "left-pad-alt": "1.3.0"}},
-                    "node_modules/left-pad": {"version": "1.1.0"},
-                    "node_modules/left-pad-alt": {"name": "left-pad", "version": "1.3.0"},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    repo = _copy_fixture_repo(tmp_path, "duplicates")
 
-    result = runner.invoke(app, ["duplicates", str(tmp_path), "--json"])
+    result = runner.invoke(app, ["duplicates", str(repo), "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["duplicates"] == [
-        {"ecosystem": "npm", "name": "left-pad", "versions": ["1.1.0", "1.3.0"]}
+        {
+            "ecosystem": "npm",
+            "name": "left-pad",
+            "versions": ["1.1.0", "1.3.0"],
+            "count": 2,
+            "source_files": [str((repo / "package-lock.json").resolve())],
+        }
     ]
+
+
+def test_cli_duplicates_table_output(tmp_path: Path) -> None:
+    repo = _copy_fixture_repo(tmp_path, "duplicates")
+
+    result = runner.invoke(app, ["duplicates", str(repo)])
+
+    assert result.exit_code == 0
+    assert "ecosystem" in result.stdout
+    assert "count" in result.stdout
+    assert "source_files" in result.stdout
+    assert "left-pad" in result.stdout
+    assert "1.1.0, 1.3.0" in result.stdout
 
 
 def test_cli_export_stdout_dash(tmp_path: Path) -> None:
