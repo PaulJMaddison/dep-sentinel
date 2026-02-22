@@ -1,5 +1,8 @@
 # depaudit
 
+[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![Python 3.10-3.12](https://img.shields.io/badge/python-3.10--3.12-blue.svg)](https://www.python.org/downloads/)
+
 `depaudit` is a fast, offline CLI for building deterministic dependency inventories from polyglot repositories. It scans common manifest/lockfiles, normalizes results across ecosystems, and supports compliance workflows (licenses, policy checks, diffs, and JSON export).
 
 ## Supported ecosystems and files
