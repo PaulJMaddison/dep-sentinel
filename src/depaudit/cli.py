@@ -9,6 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from depaudit import __version__
 from depaudit.diffing import compare_dependency_lists
 from depaudit.licenses import collect_license_findings, summarize_license_findings
 from depaudit.policy import evaluate_policy, load_policy
@@ -22,10 +23,30 @@ from depaudit.report import (
 )
 from depaudit.scan import scan_repo
 
-app = typer.Typer(help="Offline deterministic dependency inventory CLI.", no_args_is_help=True)
+app = typer.Typer(
+    help="Offline deterministic dependency inventory CLI.",
+    no_args_is_help=True,
+    add_completion=False,
+)
 policy_app = typer.Typer(help="Policy checks and evaluation.")
 app.add_typer(policy_app, name="policy")
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"depaudit {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main_callback(
+    version: Annotated[
+        bool,
+        typer.Option("--version", help="Show version and exit.", callback=_version_callback),
+    ] = False,
+) -> None:
+    """depaudit command-line interface."""
 
 
 def _resolve_scan_path(path: Path) -> Path:
