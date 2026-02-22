@@ -19,7 +19,7 @@ class Ecosystem(str, Enum):
 class Dependency:
     ecosystem: Ecosystem
     name: str
-    version: str
+    version: str | None
     direct: bool | None = None
     scope: str | None = None
     source_file: str = ""
