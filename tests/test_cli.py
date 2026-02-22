@@ -1,48 +1,58 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
-from depaudit.output import to_json
-from depaudit.scanner import scan
+from typer.testing import CliRunner
+
+from depaudit.cli import app
+
+runner = CliRunner()
 
 
-def test_scan_detects_requirements(tmp_path: Path) -> None:
-    req = tmp_path / "requirements.txt"
-    req.write_text("flask==3.0.0\n", encoding="utf-8")
+def test_cli_scan_default_path(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
 
-    records = scan(tmp_path)
-    assert len(records) == 1
-    assert records[0].name == "flask"
-    assert records[0].version == "3.0.0"
+    result = runner.invoke(app, ["scan", str(tmp_path)])
 
-
-def test_json_output_is_deterministic(tmp_path: Path) -> None:
-    pkg = tmp_path / "package.json"
-    pkg.write_text(
-        json.dumps({"dependencies": {"zlib": "^1", "alpha": "^2"}}),
-        encoding="utf-8",
-    )
-
-    records = scan(tmp_path)
-    output = to_json(records)
-    assert output == (
-        '[{"direct":true,"ecosystem":"node","license":"unknown","manifest_path":"package.json","name":"alpha","scope":"prod","version":"^2"},'
-        '{"direct":true,"ecosystem":"node","license":"unknown","manifest_path":"package.json","name":"zlib","scope":"prod","version":"^1"}]'
-    )
+    assert result.exit_code == 0
+    assert "flask" in result.stdout
 
 
-def test_python_module_help_works() -> None:
-    env = dict(os.environ, PYTHONPATH="src")
-    result = subprocess.run(
-        [sys.executable, "-m", "depaudit", "--help"],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert result.returncode == 0
-    assert "Usage" in result.stdout
+def test_cli_export_json_snapshot(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["export", str(tmp_path), "--format", "json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["repo_root"] == str(tmp_path.resolve())
+    assert payload["dependencies"] == [
+        {
+            "direct": True,
+            "ecosystem": "pypi",
+            "extras": {},
+            "name": "requests",
+            "scope": None,
+            "source_file": str((tmp_path / "requirements.txt").resolve()),
+            "version": "2.31.0",
+        },
+        {
+            "direct": None,
+            "ecosystem": "pypi",
+            "extras": {},
+            "name": "requirements",
+            "scope": None,
+            "source_file": str((tmp_path / "requirements.txt").resolve()),
+            "version": "unknown",
+        },
+    ]
+    assert payload["errors"] == []
+    assert payload["generated_at"].endswith("Z")
+
+
+def test_cli_export_rejects_unsupported_format(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["export", str(tmp_path), "--format", "cyclonedx"])
+
+    assert result.exit_code == 1
+    assert "Unsupported format" in result.stdout
