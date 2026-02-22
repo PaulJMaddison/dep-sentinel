@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from fnmatch import fnmatch
@@ -11,10 +12,16 @@ from depaudit.parsers.registry import discover_parsers
 _DEFAULT_IGNORES = (
     ".git",
     "node_modules",
+    ".venv",
+    "venv",
     "target",
+    "dist",
+    "build",
     "bin",
     "obj",
-    ".venv",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
 )
 
 
@@ -66,12 +73,23 @@ class RepoScanner:
 
     def collect_candidate_files(self) -> list[Path]:
         candidates: list[Path] = []
-        for path in sorted(self.repo_root.rglob("*")):
-            rel = path.relative_to(self.repo_root).as_posix()
-            if self._is_ignored(rel, path.is_dir()):
-                continue
-            if path.is_file():
-                candidates.append(path)
+        for root, dirs, files in os.walk(self.repo_root, topdown=True):
+            root_path = Path(root)
+            rel_root = root_path.relative_to(self.repo_root)
+
+            keep_dirs: list[str] = []
+            for dirname in sorted(dirs):
+                rel_dir = (rel_root / dirname).as_posix()
+                if self._is_ignored(rel_dir, is_dir=True):
+                    continue
+                keep_dirs.append(dirname)
+            dirs[:] = keep_dirs
+
+            for filename in sorted(files):
+                rel_file = (rel_root / filename).as_posix()
+                if self._is_ignored(rel_file, is_dir=False):
+                    continue
+                candidates.append(root_path / filename)
         return candidates
 
     def scan(self, max_workers: int | None = None) -> ScanResult:
@@ -124,7 +142,12 @@ class RepoScanner:
         if not gitignore.exists():
             return rules
 
-        for line in gitignore.read_text(encoding="utf-8", errors="ignore").splitlines():
+        try:
+            content = gitignore.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return rules
+
+        for line in content.splitlines():
             parsed = _IgnoreRule.parse(line)
             if parsed is not None:
                 rules.append(parsed)

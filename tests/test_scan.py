@@ -86,3 +86,36 @@ def test_scan_repo_supports_max_workers_and_package_root_count(tmp_path: Path) -
     assert "requests" in names
     assert "lodash" in names
     assert result.stats["package_roots"] == 2
+
+
+def test_collect_candidate_files_skips_default_junk_directories(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    skipped_dirs = [
+        ".git",
+        "node_modules",
+        ".venv",
+        "venv",
+        "target",
+        "dist",
+        "build",
+        "bin",
+        "obj",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+    ]
+
+    for dirname in skipped_dirs:
+        junk = repo / dirname
+        junk.mkdir(parents=True, exist_ok=True)
+        (junk / "package.json").write_text('{"dependencies": {"left-pad": "1.3.0"}}', encoding="utf-8")
+
+    (repo / "service").mkdir()
+    (repo / "service" / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+
+    scanner = RepoScanner(repo)
+    files = [path.relative_to(repo).as_posix() for path in scanner.collect_candidate_files()]
+
+    assert files == ["service/requirements.txt"]
