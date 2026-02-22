@@ -54,7 +54,9 @@ def compare_dependency_lists(
 
         changed_count = min(len(base_expanded), len(curr_expanded))
         identity_doc = _identity_to_doc(identity)
-        for old_version, new_version in zip(base_expanded[:changed_count], curr_expanded[:changed_count]):
+        for old_version, new_version in zip(
+            base_expanded[:changed_count], curr_expanded[:changed_count], strict=False
+        ):
             version_changes.append(
                 {
                     **identity_doc,

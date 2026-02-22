@@ -283,7 +283,9 @@ def test_cli_scan_fail_soft_for_malformed_json_toml_and_xml(tmp_path: Path) -> N
     (tmp_path / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
     (tmp_path / "package-lock.json").write_text('{"dependencies":', encoding="utf-8")
     (tmp_path / "Cargo.lock").write_text('[[package]\nname = "serde"\n', encoding="utf-8")
-    (tmp_path / "pom.xml").write_text('<project><dependencies><dependency></project>', encoding="utf-8")
+    (tmp_path / "pom.xml").write_text(
+        "<project><dependencies><dependency></project>", encoding="utf-8"
+    )
 
     result = runner.invoke(app, ["scan", str(tmp_path), "--json"])
 
