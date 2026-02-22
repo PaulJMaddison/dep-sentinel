@@ -6,6 +6,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from depaudit import __version__
 from depaudit.cli import app
 from depaudit.model import ScanResult
 
@@ -18,6 +19,22 @@ def _copy_fixture_repo(tmp_path: Path, fixture_name: str) -> Path:
     shutil.copytree(src, dst)
     return dst
 
+
+
+
+def test_cli_version_flag() -> None:
+    result = runner.invoke(app, ["--version"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == f"depaudit {__version__}"
+
+
+def test_cli_help_shows_usage() -> None:
+    result = runner.invoke(app, ["--help"])
+
+    assert result.exit_code == 0
+    assert "Usage" in result.stdout
+    assert "scan" in result.stdout
 
 def test_cli_scan_default_path(tmp_path: Path) -> None:
     (tmp_path / "requirements.txt").write_text("flask==3.0.0\n", encoding="utf-8")
