@@ -11,13 +11,13 @@ from rich.table import Table
 
 from depaudit.diffing import compare_dependency_lists
 from depaudit.licenses import collect_license_findings, summarize_license_findings
-from depaudit.normalize import count_by_ecosystem
 from depaudit.policy import evaluate_policy, load_policy
 from depaudit.report import (
     build_export_document,
     duplicates_view,
     print_duplicates,
     print_summary,
+    summary_counts,
     top_dependencies,
 )
 from depaudit.scan import scan_repo
@@ -134,9 +134,14 @@ def summary(
     result = scan_repo(path, max_workers=max_workers)
 
     if as_json:
+        counts = summary_counts(result)
         payload = {
             "repo_root": str(Path(result.repo_root).resolve()),
-            "ecosystem_counts": count_by_ecosystem(result.dependencies),
+            "ecosystem_counts": counts["ecosystem_counts"],
+            "total_dependencies": counts["total_dependencies"],
+            "unique_components": counts["unique_components"],
+            "duplicate_components": counts["duplicate_components"],
+            "parse_error_count": counts["parse_error_count"],
             "top_dependencies": [
                 {"name": name, "count": count}
                 for name, count in top_dependencies(result.dependencies, top)

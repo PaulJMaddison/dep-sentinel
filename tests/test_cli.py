@@ -188,6 +188,32 @@ def test_cli_summary_quiet_prints_only_errors(monkeypatch, tmp_path: Path) -> No
     assert "Parse Errors" in result.stdout
 
 
+def test_cli_summary_json_includes_summary_counts(tmp_path: Path) -> None:
+    repo = _copy_fixture_repo(tmp_path, "duplicates")
+
+    result = runner.invoke(app, ["summary", str(repo), "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["total_dependencies"] > 0
+    assert payload["unique_components"] > 0
+    assert payload["duplicate_components"] == 1
+    assert payload["parse_error_count"] == 0
+
+
+def test_cli_summary_table_includes_summary_section(tmp_path: Path) -> None:
+    repo = _copy_fixture_repo(tmp_path, "duplicates")
+
+    result = runner.invoke(app, ["summary", str(repo)])
+
+    assert result.exit_code == 0
+    assert "Summary" in result.stdout
+    assert "Total deps" in result.stdout
+    assert "Unique components" in result.stdout
+    assert "Duplicates" in result.stdout
+    assert "Parse errors" in result.stdout
+
+
 def test_cli_duplicates_json_output(tmp_path: Path) -> None:
     repo = _copy_fixture_repo(tmp_path, "duplicates")
 
