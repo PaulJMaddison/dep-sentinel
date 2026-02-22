@@ -1,35 +1,94 @@
 # depaudit
 
-`depaudit` is an offline, deterministic CLI for generating dependency inventory across Python, Node, Rust, Go, .NET, and Java repositories.
+`depaudit` is a fast, offline CLI for building deterministic dependency inventories from polyglot repositories. It scans common manifest/lockfiles, normalizes results across ecosystems, and supports compliance workflows (licenses, policy checks, diffs, and JSON export).
 
-## Features
-- Detect ecosystem manifests/lockfiles.
-- Emit dependency inventory records.
-- Produce a local license summary.
-- Run local policy checks.
-- Rich terminal output with JSON/NDJSON machine-readable options.
+## Supported ecosystems and files
 
-## Installation
+- **Python (PyPI):** `pyproject.toml`, `requirements.txt`
+- **Node.js (npm):** `package-lock.json`
+- **Rust (crates):** `Cargo.lock`
+- **Go (modules):** `go.mod`
+- **.NET (NuGet):** `packages.lock.json`, `*.csproj` (with `Directory.Packages.props` support)
+- **Java (Maven/Gradle):** `pom.xml`, `gradle.lockfile`
+
+## Install
+
+```bash
+pip install depaudit
+```
+
+For local development:
+
 ```bash
 pip install -e .
 ```
 
-## CLI usage
+## Examples
+
 ```bash
-python -m depaudit --help
-python -m depaudit scan . --format table
-python -m depaudit licenses . --format json
-python -m depaudit policy check . --policy policy.json --format table
+# Inventory table
+
+depaudit scan .
+
+# Ecosystem counts + top dependencies + parse errors
+
+depaudit summary . --top 15
+
+# Dependencies with multiple versions
+
+depaudit duplicates .
+
+# License summary (best effort, offline)
+
+depaudit licenses .
+
+# Policy check (exit code 3 on violations)
+
+depaudit policy check . --policy policy.yaml
+
+# Export deterministic JSON
+
+depaudit export . --format json --out depaudit.json
+
+# Diff current repo against a previous export
+
+depaudit diff . --baseline depaudit.json --json
 ```
 
-## Development
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
-ruff check .
-pytest
+## Add a new parser
+
+1. Create `src/depaudit/parsers/<ecosystem>.py`.
+2. Implement a parser object with the parser protocol:
+   - `ecosystem: str`
+   - `detect(files: list[Path]) -> list[Path]`
+   - `parse(path: Path) -> list[Dependency]`
+3. Expose it as `PARSERS = [YourParser()]`.
+4. Add fixtures under `tests/fixtures/` and parser tests in `tests/test_parsers_mvp.py` (or a new parser test module).
+5. Run local checks before opening a PR.
+
+Parsers are auto-discovered from `depaudit.parsers.*` modules, so no central registry edit is required.
+
+## Export JSON schema (snippet)
+
+```json
+{
+  "repo_root": "/abs/path/to/repo",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "dependencies": [
+    {
+      "ecosystem": "pypi",
+      "name": "requests",
+      "version": "2.31.0",
+      "direct": true,
+      "scope": null,
+      "source_file": "requirements.txt",
+      "extras": {}
+    }
+  ],
+  "errors": []
+}
 ```
 
 ## License
+
 MIT. See [LICENSE](LICENSE).
