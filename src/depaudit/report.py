@@ -14,18 +14,38 @@ from depaudit.normalize import count_by_ecosystem
 
 @dataclass(frozen=True)
 class ExportDocument:
+    schema_version: str
     repo_root: str
-    generated_at: str
+    generated_at: str | None
     dependencies: list[dict[str, object]]
-    errors: list[str]
+    errors: list[dict[str, str]]
+    stats: dict[str, object]
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
+            "schema_version": self.schema_version,
             "repo_root": self.repo_root,
-            "generated_at": self.generated_at,
             "dependencies": self.dependencies,
             "errors": self.errors,
+            "stats": self.stats,
         }
+        if self.generated_at is not None:
+            payload["generated_at"] = self.generated_at
+        return payload
+
+
+def _to_utc_iso8601(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _sort_errors(errors: list[str]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for error in errors:
+        source_file, _, message = error.partition(":")
+        cleaned_source_file = source_file.strip()
+        cleaned_message = message.strip() if message else error.strip()
+        rows.append({"source_file": cleaned_source_file, "message": cleaned_message})
+    return sorted(rows, key=lambda row: (row["source_file"], row["message"]))
 
 
 def top_dependencies(dependencies: list[Dependency], limit: int = 10) -> list[tuple[str, int]]:
@@ -110,18 +130,30 @@ def _sort_dependency_dicts(dependencies: list[Dependency]) -> list[dict[str, obj
 
 
 def build_export_document(
-    result: ScanResult, generated_at: datetime | None = None
+    result: ScanResult,
+    generated_at: datetime | None = None,
+    include_timestamp: bool = True,
 ) -> ExportDocument:
-    timestamp = generated_at or datetime.now(timezone.utc)
-    stamp = (
-        timestamp.astimezone(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    stamp = None
+    if include_timestamp:
+        timestamp = generated_at or datetime.now(timezone.utc)
+        stamp = _to_utc_iso8601(timestamp)
+
+    doc = {
+        "schema_version": "1.0",
+        "repo_root": str(Path(result.repo_root).resolve()),
+        "dependencies": _sort_dependency_dicts(result.dependencies),
+        "errors": _sort_errors(result.errors),
+        "stats": dict(result.stats),
+    }
+    if stamp is not None:
+        doc["generated_at"] = stamp
+
     return ExportDocument(
-        repo_root=str(Path(result.repo_root).resolve()),
-        generated_at=stamp,
-        dependencies=_sort_dependency_dicts(result.dependencies),
-        errors=sorted(result.errors),
+        schema_version=str(doc["schema_version"]),
+        repo_root=str(doc["repo_root"]),
+        generated_at=doc.get("generated_at"),
+        dependencies=doc["dependencies"],
+        errors=doc["errors"],
+        stats=doc["stats"],
     )

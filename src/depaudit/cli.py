@@ -193,6 +193,9 @@ def export(
         str | None, typer.Option("--out", help="Write export to a file path or '-' for stdout.")
     ] = None,
     quiet: Annotated[bool, typer.Option("--quiet", help="Suppress non-error output.")] = False,
+    no_timestamp: Annotated[
+        bool, typer.Option("--no-timestamp", help="Omit generated_at from export output.")
+    ] = False,
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
@@ -207,7 +210,7 @@ def export(
         raise typer.Exit(code=1)
 
     payload = json.dumps(
-        build_export_document(result).to_dict(),
+        build_export_document(result, include_timestamp=not no_timestamp).to_dict(),
         sort_keys=True,
         separators=(",", ":"),
     )

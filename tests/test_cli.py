@@ -48,8 +48,48 @@ def test_cli_export_json_snapshot(tmp_path: Path) -> None:
             "version": "unknown",
         },
     ]
+    assert payload["schema_version"] == "1.0"
     assert payload["errors"] == []
+    assert payload["stats"]["dependencies_found"] == 2
     assert payload["generated_at"].endswith("Z")
+
+
+def test_cli_export_no_timestamp(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["export", str(tmp_path), "--format", "json", "--no-timestamp"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert "generated_at" not in payload
+
+
+def test_cli_export_deterministic_ordering(monkeypatch, tmp_path: Path) -> None:
+    def fake_scan_repo(path: Path, max_workers: int | None = None) -> ScanResult:
+        from depaudit.model import Dependency, Ecosystem
+
+        return ScanResult(
+            repo_root=str(path),
+            dependencies=[
+                Dependency(ecosystem=Ecosystem.NPM, name="z", version="2", source_file="b"),
+                Dependency(ecosystem=Ecosystem.NPM, name="a", version="1", source_file="a"),
+                Dependency(ecosystem=Ecosystem.NPM, name="a", version="1", source_file="b"),
+            ],
+            errors=["z.txt: alpha", "a.txt: zeta", "a.txt: beta"],
+        )
+
+    monkeypatch.setattr("depaudit.cli.scan_repo", fake_scan_repo)
+
+    result = runner.invoke(app, ["export", str(tmp_path), "--no-timestamp"])
+
+    assert result.exit_code == 2
+    payload = json.loads(result.stdout.splitlines()[0])
+    assert [dep["source_file"] for dep in payload["dependencies"]] == ["a", "b", "b"]
+    assert payload["errors"] == [
+        {"source_file": "a.txt", "message": "beta"},
+        {"source_file": "a.txt", "message": "zeta"},
+        {"source_file": "z.txt", "message": "alpha"},
+    ]
 
 
 def test_cli_export_rejects_unsupported_format(tmp_path: Path) -> None:
