@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from depaudit.output import to_json
@@ -30,3 +33,16 @@ def test_json_output_is_deterministic(tmp_path: Path) -> None:
         '[{"direct":true,"ecosystem":"node","license":"unknown","manifest_path":"package.json","name":"alpha","scope":"prod","version":"^2"},'
         '{"direct":true,"ecosystem":"node","license":"unknown","manifest_path":"package.json","name":"zlib","scope":"prod","version":"^1"}]'
     )
+
+
+def test_python_module_help_works() -> None:
+    env = dict(os.environ, PYTHONPATH="src")
+    result = subprocess.run(
+        [sys.executable, "-m", "depaudit", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0
+    assert "Usage" in result.stdout

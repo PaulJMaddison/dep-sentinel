@@ -1,74 +1,121 @@
 from __future__ import annotations
 
-import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import Annotated
 
-from depaudit.output import license_summary, to_json, to_ndjson, to_table
+import typer
+from rich.console import Console
+from rich.table import Table
+
+from depaudit.output import license_summary, to_json, to_ndjson
 from depaudit.policy import check_policy, load_policy
 from depaudit.scanner import scan
 
+app = typer.Typer(help="Offline deterministic dependency inventory CLI.", no_args_is_help=True)
+console = Console()
 
-def _render_records(fmt: str, records) -> str:
-    if fmt == "json":
-        return to_json(records)
-    if fmt == "ndjson":
-        return to_ndjson(records)
-    return to_table(records)
+
+FormatOption = Annotated[str, typer.Option("--format", help="Output format")]
+
+
+def _print_records_table(records) -> None:
+    if not records:
+        console.print("[yellow]No dependencies found[/yellow]")
+        return
+
+    table = Table(title="Dependency Inventory")
+    table.add_column("ecosystem")
+    table.add_column("name")
+    table.add_column("version")
+    table.add_column("scope")
+    table.add_column("manifest_path")
+
+    for record in records:
+        table.add_row(
+            record.ecosystem,
+            record.name,
+            record.version,
+            record.scope,
+            record.manifest_path,
+        )
+
+    console.print(table)
+
+
+@app.command("scan")
+def scan_cmd(
+    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    output_format: FormatOption = "table",
+) -> None:
+    """Scan a repository for supported dependency manifests."""
+    records = scan(path)
+    if output_format == "json":
+        console.print(to_json(records))
+    elif output_format == "ndjson":
+        console.print(to_ndjson(records))
+    else:
+        _print_records_table(records)
+
+
+@app.command()
+def licenses(
+    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    output_format: Annotated[str, typer.Option("--format", help="Output format")] = "table",
+) -> None:
+    """Summarize licenses for discovered dependencies."""
+    records = scan(path)
+    summary = license_summary(records)
+    if output_format == "json":
+        console.print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
+        return
+
+    table = Table(title="License Summary")
+    table.add_column("license")
+    table.add_column("count", justify="right")
+    for name, count in summary.items():
+        table.add_row(name, str(count))
+    console.print(table)
+
+
+policy_app = typer.Typer(help="Policy operations.")
+app.add_typer(policy_app, name="policy")
+
+
+@policy_app.command("check")
+def policy_check(
+    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    policy: Annotated[
+        Path,
+        typer.Option("--policy", exists=True, file_okay=True, dir_okay=False),
+    ] = ...,
+    output_format: Annotated[str, typer.Option("--format", help="Output format")] = "table",
+) -> None:
+    """Evaluate dependencies against a JSON policy file."""
+    records = scan(path)
+    findings = check_policy(records, load_policy(policy))
+
+    if output_format == "json":
+        payload = [asdict(finding) for finding in findings]
+        console.print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return
+
+    if not findings:
+        console.print("[green]PASS[/green]: no policy violations")
+        return
+
+    table = Table(title="Policy Findings")
+    table.add_column("rule")
+    table.add_column("package")
+    table.add_column("reason")
+    for finding in findings:
+        table.add_row(finding.rule, finding.package, finding.reason)
+    console.print(table)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="depaudit")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    scan_cmd = subparsers.add_parser("scan")
-    scan_cmd.add_argument("path", nargs="?", default=".")
-    scan_cmd.add_argument("--format", choices=["table", "json", "ndjson"], default="table")
-
-    licenses_cmd = subparsers.add_parser("licenses")
-    licenses_cmd.add_argument("path", nargs="?", default=".")
-    licenses_cmd.add_argument("--format", choices=["table", "json"], default="table")
-
-    policy_cmd = subparsers.add_parser("policy")
-    policy_sub = policy_cmd.add_subparsers(dest="policy_command", required=True)
-    policy_check = policy_sub.add_parser("check")
-    policy_check.add_argument("path", nargs="?", default=".")
-    policy_check.add_argument("--policy", required=True)
-    policy_check.add_argument("--format", choices=["table", "json"], default="table")
-
-    args = parser.parse_args()
-
-    if args.command == "scan":
-        records = scan(Path(args.path))
-        print(_render_records(args.format, records))
-        return
-
-    if args.command == "licenses":
-        records = scan(Path(args.path))
-        summary = license_summary(records)
-        if args.format == "json":
-            print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
-        else:
-            print("license | count")
-            print("--------+------")
-            for name, count in summary.items():
-                print(f"{name} | {count}")
-        return
-
-    if args.command == "policy" and args.policy_command == "check":
-        records = scan(Path(args.path))
-        findings = check_policy(records, load_policy(Path(args.policy)))
-        if args.format == "json":
-            print(json.dumps([asdict(finding) for finding in findings], sort_keys=True, separators=(",", ":")))
-        else:
-            if not findings:
-                print("PASS: no policy violations")
-            else:
-                print("rule | package | reason")
-                print("-----+---------+-------")
-                for finding in findings:
-                    print(f"{finding.rule} | {finding.package} | {finding.reason}")
+    app()
 
 
 if __name__ == "__main__":
