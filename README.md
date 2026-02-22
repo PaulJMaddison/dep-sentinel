@@ -49,6 +49,8 @@ depaudit policy check . --policy policy.yaml
 # Export deterministic JSON
 
 depaudit export . --format json --out depaudit.json
+# For golden tests, omit non-deterministic timestamp
+depaudit export . --format json --no-timestamp
 
 # Diff current repo against a previous export
 
@@ -72,6 +74,7 @@ Parsers are auto-discovered from `depaudit.parsers.*` modules, so no central reg
 
 ```json
 {
+  "schema_version": "1.0",
   "repo_root": "/abs/path/to/repo",
   "generated_at": "2026-01-01T00:00:00Z",
   "dependencies": [
@@ -85,7 +88,13 @@ Parsers are auto-discovered from `depaudit.parsers.*` modules, so no central reg
       "extras": {}
     }
   ],
-  "errors": []
+  "errors": [
+    {
+      "source_file": "requirements.txt",
+      "message": "failed to parse line 3"
+    }
+  ],
+  "stats": {}
 }
 ```
 

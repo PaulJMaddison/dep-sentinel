@@ -14,7 +14,8 @@ def test_export_document_is_deterministically_sorted() -> None:
             Dependency(ecosystem=Ecosystem.NPM, name="alpha", version="2", source_file="a"),
             Dependency(ecosystem=Ecosystem.PYPI, name="alpha", version="1", source_file="c"),
         ],
-        errors=["z-error", "a-error"],
+        errors=["z.txt: alpha", "a.txt: zeta", "a.txt: beta"],
+        stats={"files_scanned": 3},
     )
 
     doc = build_export_document(
@@ -23,6 +24,7 @@ def test_export_document_is_deterministically_sorted() -> None:
     ).to_dict()
 
     assert doc == {
+        "schema_version": "1.0",
         "repo_root": "/repo",
         "generated_at": "2025-01-02T03:04:05Z",
         "dependencies": [
@@ -54,5 +56,18 @@ def test_export_document_is_deterministically_sorted() -> None:
                 "extras": {},
             },
         ],
-        "errors": ["a-error", "z-error"],
+        "errors": [
+            {"source_file": "a.txt", "message": "beta"},
+            {"source_file": "a.txt", "message": "zeta"},
+            {"source_file": "z.txt", "message": "alpha"},
+        ],
+        "stats": {"files_scanned": 3},
     }
+
+
+def test_export_document_can_omit_timestamp() -> None:
+    result = ScanResult(repo_root="/repo")
+
+    doc = build_export_document(result, include_timestamp=False).to_dict()
+
+    assert "generated_at" not in doc
