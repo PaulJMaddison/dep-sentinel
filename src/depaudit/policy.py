@@ -22,7 +22,10 @@ def load_policy(path: Path) -> dict[str, list[str]]:
     }
 
 
-def check_policy(records: list[DependencyRecord], policy: dict[str, list[str]]) -> list[PolicyFinding]:
+def check_policy(
+    records: list[DependencyRecord],
+    policy: dict[str, list[str]],
+) -> list[PolicyFinding]:
     findings: list[PolicyFinding] = []
     blocked_licenses = set(policy.get("blocked_licenses", []))
     blocked_packages = set(policy.get("blocked_packages", []))
