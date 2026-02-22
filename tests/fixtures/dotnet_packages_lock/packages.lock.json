@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "dependencies": {
+    ".NETCoreApp,Version=v8.0": {
+      "Newtonsoft.Json": {
+        "type": "Direct",
+        "resolved": "13.0.3"
+      }
+    }
+  }
+}
