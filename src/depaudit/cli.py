@@ -4,14 +4,22 @@ import json
 from pathlib import Path
 from typing import Annotated
 
+import click
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from depaudit.diffing import compare_dependency_lists
 from depaudit.licenses import collect_license_findings, summarize_license_findings
+from depaudit.normalize import count_by_ecosystem
 from depaudit.policy import evaluate_policy, load_policy
-from depaudit.report import build_export_document, print_duplicates, print_summary
+from depaudit.report import (
+    build_export_document,
+    duplicates_view,
+    print_duplicates,
+    print_summary,
+    top_dependencies,
+)
 from depaudit.scan import scan_repo
 
 app = typer.Typer(help="Offline deterministic dependency inventory CLI.", no_args_is_help=True)
@@ -20,80 +28,178 @@ app.add_typer(policy_app, name="policy")
 console = Console()
 
 
+def _resolve_scan_path(path: Path) -> Path:
+    if not path.exists() or not path.is_dir():
+        console.print(f"[red]Cannot read path: {path}[/red]")
+        raise typer.Exit(code=1)
+    return path
+
+
+def _parse_error_rows(errors: list[str]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for error in sorted(errors):
+        file_path, _, detail = error.partition(":")
+        rows.append(
+            {
+                "file": file_path.strip(),
+                "error": detail.strip() if detail else error,
+            }
+        )
+    return rows
+
+
+def _print_parse_errors(errors: list[str]) -> None:
+    if not errors:
+        return
+
+    console.print("\n[bold red]Parse Errors[/bold red]")
+    err_table = Table()
+    err_table.add_column("file")
+    err_table.add_column("error")
+    for row in _parse_error_rows(errors):
+        err_table.add_row(row["file"], row["error"])
+    console.print(err_table)
+
+
+def _exit_for_parse_errors(errors: list[str]) -> None:
+    if errors:
+        raise typer.Exit(code=2)
+
+
 @app.command("scan")
 def scan_cmd(
-    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    path: Annotated[Path, typer.Argument()] = Path("."),
+    quiet: Annotated[
+        bool, typer.Option("--quiet", help="Suppress tables; print only parse errors.")
+    ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON output.")
+    ] = False,
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
     ] = None,
 ) -> None:
     """Scan a repository for supported dependency manifests."""
+    path = _resolve_scan_path(path)
     result = scan_repo(path, max_workers=max_workers)
 
-    table = Table(title="Dependencies")
-    table.add_column("ecosystem")
-    table.add_column("name")
-    table.add_column("version")
-    table.add_column("direct")
-    table.add_column("source_file")
+    if as_json:
+        payload = {
+            "repo_root": str(Path(result.repo_root).resolve()),
+            "dependencies": [dep.to_dict() for dep in result.dependencies],
+            "parse_errors": _parse_error_rows(result.errors),
+        }
+        typer.echo(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    elif not quiet:
+        table = Table(title="Dependencies")
+        table.add_column("ecosystem")
+        table.add_column("name")
+        table.add_column("version")
+        table.add_column("direct")
+        table.add_column("source_file")
 
-    for dep in result.dependencies:
-        table.add_row(
-            dep.ecosystem.value,
-            dep.name,
-            dep.version or "unknown",
-            "yes" if dep.direct else "no",
-            dep.source_file,
-        )
-    console.print(table)
+        for dep in result.dependencies:
+            table.add_row(
+                dep.ecosystem.value,
+                dep.name,
+                dep.version or "unknown",
+                "yes" if dep.direct else "no",
+                dep.source_file,
+            )
+        console.print(table)
 
     if result.errors:
-        raise typer.Exit(code=2)
+        _print_parse_errors(result.errors)
+    _exit_for_parse_errors(result.errors)
 
 
 @app.command()
 def summary(
-    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    path: Annotated[Path, typer.Argument()] = Path("."),
     top: Annotated[int, typer.Option("--top", min=1, help="Top N dependencies to show.")] = 10,
+    quiet: Annotated[
+        bool, typer.Option("--quiet", help="Suppress tables; print only parse errors.")
+    ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON output.")
+    ] = False,
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
     ] = None,
 ) -> None:
     """Show summary views for ecosystem counts, top dependencies, and parse errors."""
+    path = _resolve_scan_path(path)
     result = scan_repo(path, max_workers=max_workers)
-    print_summary(console, result, top)
-    if result.errors:
-        raise typer.Exit(code=2)
+
+    if as_json:
+        payload = {
+            "repo_root": str(Path(result.repo_root).resolve()),
+            "ecosystem_counts": count_by_ecosystem(result.dependencies),
+            "top_dependencies": [
+                {"name": name, "count": count}
+                for name, count in top_dependencies(result.dependencies, top)
+            ],
+            "parse_errors": _parse_error_rows(result.errors),
+        }
+        typer.echo(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    elif not quiet:
+        print_summary(console, result, top)
+
+    if result.errors and (quiet or as_json):
+        _print_parse_errors(result.errors)
+    _exit_for_parse_errors(result.errors)
 
 
 @app.command()
 def duplicates(
-    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    path: Annotated[Path, typer.Argument()] = Path("."),
+    quiet: Annotated[
+        bool, typer.Option("--quiet", help="Suppress tables; print only parse errors.")
+    ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable JSON output.")
+    ] = False,
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
     ] = None,
 ) -> None:
     """List dependencies that appear with multiple versions."""
+    path = _resolve_scan_path(path)
     result = scan_repo(path, max_workers=max_workers)
-    print_duplicates(console, result.dependencies)
+
+    if as_json:
+        payload = {
+            "repo_root": str(Path(result.repo_root).resolve()),
+            "duplicates": duplicates_view(result.dependencies),
+            "parse_errors": _parse_error_rows(result.errors),
+        }
+        typer.echo(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    elif not quiet:
+        print_duplicates(console, result.dependencies)
+
     if result.errors:
-        raise typer.Exit(code=2)
+        _print_parse_errors(result.errors)
+    _exit_for_parse_errors(result.errors)
 
 
 @app.command()
 def export(
-    path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
+    path: Annotated[Path, typer.Argument()] = Path("."),
     output_format: Annotated[str, typer.Option("--format", help="Export format.")] = "json",
-    out: Annotated[Path | None, typer.Option("--out", help="Write export to a file path.")] = None,
+    out: Annotated[
+        str | None, typer.Option("--out", help="Write export to a file path or '-' for stdout.")
+    ] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", help="Suppress non-error output.")] = False,
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
     ] = None,
 ) -> None:
     """Export dependency scan results in a stable schema."""
+    path = _resolve_scan_path(path)
     result = scan_repo(path, max_workers=max_workers)
 
     if output_format != "json":
@@ -106,20 +212,24 @@ def export(
         separators=(",", ":"),
     )
 
-    if out is None:
-        typer.echo(payload)
+    if out is None or out == "-":
+        if not quiet:
+            typer.echo(payload)
     else:
-        out.write_text(payload + "\n", encoding="utf-8")
+        Path(out).write_text(payload + "\n", encoding="utf-8")
 
     if result.errors:
-        raise typer.Exit(code=2)
+        _print_parse_errors(result.errors)
+    _exit_for_parse_errors(result.errors)
 
 
 @app.command()
 def diff(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
     baseline: Annotated[Path, typer.Option("--baseline", exists=True, dir_okay=False)] = ...,
-    as_json: Annotated[bool, typer.Option("--json", help="Output diff as deterministic JSON.")] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Output diff as deterministic JSON.")
+    ] = False,
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
@@ -127,7 +237,9 @@ def diff(
 ) -> None:
     """Diff current dependency inventory against an exported baseline."""
     baseline_payload = json.loads(baseline.read_text(encoding="utf-8"))
-    baseline_deps = baseline_payload.get("dependencies", []) if isinstance(baseline_payload, dict) else []
+    baseline_deps = (
+        baseline_payload.get("dependencies", []) if isinstance(baseline_payload, dict) else []
+    )
 
     result = scan_repo(path, max_workers=max_workers)
     current_deps = build_export_document(result).dependencies
@@ -203,9 +315,9 @@ def licenses(
 @policy_app.command("check")
 def policy_check(
     path: Annotated[Path, typer.Argument(exists=True, file_okay=False, dir_okay=True)] = Path("."),
-    policy: Annotated[
-        Path, typer.Option("--policy", exists=True, dir_okay=False)
-    ] = Path("policy.yaml"),
+    policy: Annotated[Path, typer.Option("--policy", exists=True, dir_okay=False)] = Path(
+        "policy.yaml"
+    ),
     max_workers: Annotated[
         int | None,
         typer.Option("--max-workers", min=1, help="Maximum parallel parser workers."),
@@ -234,7 +346,18 @@ def policy_check(
 
 
 def main() -> None:
-    app()
+    try:
+        app(standalone_mode=False)
+    except typer.Exit as exc:
+        raise SystemExit(exc.exit_code) from exc
+    except click.ClickException as exc:
+        exc.show()
+        raise SystemExit(1) from exc
+    except click.Abort as exc:
+        raise SystemExit(1) from exc
+    except Exception as exc:  # pragma: no cover - defensive CLI boundary
+        console.print(f"[red]Unexpected crash: {exc}[/red]")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
