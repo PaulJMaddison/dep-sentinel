@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from depaudit.model import Dependency, Ecosystem, ScanResult
-from depaudit.report import build_export_document
+from depaudit.report import build_export_document, duplicates_view
 
 
 def test_export_document_is_deterministically_sorted() -> None:
@@ -71,3 +71,23 @@ def test_export_document_can_omit_timestamp() -> None:
     doc = build_export_document(result, include_timestamp=False).to_dict()
 
     assert "generated_at" not in doc
+
+
+def test_duplicates_view_includes_count_and_source_files() -> None:
+    dependencies = [
+        Dependency(ecosystem=Ecosystem.NPM, name="left-pad", version="1.1.0", source_file="a"),
+        Dependency(ecosystem=Ecosystem.NPM, name="left-pad", version="1.3.0", source_file="b"),
+        Dependency(ecosystem=Ecosystem.NPM, name="left-pad", version="1.3.0", source_file="a"),
+    ]
+
+    rows = duplicates_view(dependencies)
+
+    assert rows == [
+        {
+            "ecosystem": "npm",
+            "name": "left-pad",
+            "versions": ["1.1.0", "1.3.0"],
+            "count": 2,
+            "source_files": ["a", "b"],
+        }
+    ]

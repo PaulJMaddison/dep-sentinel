@@ -81,9 +81,11 @@ def print_summary(console: Console, result: ScanResult, top_n: int = 10) -> None
 
 def duplicates_view(dependencies: list[Dependency]) -> list[dict[str, object]]:
     versions_by_key: dict[tuple[str, str], set[str]] = {}
+    source_files_by_key: dict[tuple[str, str], set[str]] = {}
     for dependency in dependencies:
         key = (dependency.ecosystem.value, dependency.name)
         versions_by_key.setdefault(key, set()).add(dependency.version or "unknown")
+        source_files_by_key.setdefault(key, set()).add(dependency.source_file)
 
     rows: list[dict[str, object]] = []
     for (ecosystem, name), versions in sorted(versions_by_key.items()):
@@ -94,6 +96,8 @@ def duplicates_view(dependencies: list[Dependency]) -> list[dict[str, object]]:
                 "ecosystem": ecosystem,
                 "name": name,
                 "versions": sorted(versions),
+                "count": len(versions),
+                "source_files": sorted(source_files_by_key[key]),
             }
         )
     return rows
@@ -109,8 +113,16 @@ def print_duplicates(console: Console, dependencies: list[Dependency]) -> None:
     table.add_column("ecosystem")
     table.add_column("name")
     table.add_column("versions")
+    table.add_column("count", justify="right")
+    table.add_column("source_files")
     for row in rows:
-        table.add_row(row["ecosystem"], row["name"], ", ".join(row["versions"]))
+        table.add_row(
+            row["ecosystem"],
+            row["name"],
+            ", ".join(row["versions"]),
+            str(row["count"]),
+            ", ".join(row["source_files"]),
+        )
     console.print(table)
 
 
