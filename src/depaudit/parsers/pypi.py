@@ -89,7 +89,13 @@ def _parse_requirement_spec(spec: str) -> tuple[str, str | None] | None:
     return name, pinned
 
 
-def _dep(path: Path, name: str, version: str | None, direct: bool | None, scope: str | None) -> Dependency:
+def _dep(
+    path: Path,
+    name: str,
+    version: str | None,
+    direct: bool | None,
+    scope: str | None,
+) -> Dependency:
     return Dependency(
         ecosystem=Ecosystem.PYPI,
         name=name,

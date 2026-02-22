@@ -115,7 +115,7 @@ class RepoScanner:
                     future = pool.submit(parser.parse, manifest)
                     future_map[future] = (parser_index, parser_name, manifest)
 
-                for future, (_, parser_name, manifest) in sorted(
+                for future, (_, _parser_name, manifest) in sorted(
                     future_map.items(), key=lambda item: (item[1][0], item[1][2].as_posix())
                 ):
                     try:
@@ -138,7 +138,10 @@ class RepoScanner:
         )
 
     def _load_gitignore_rules(self) -> list[_IgnoreRule]:
-        rules = [_IgnoreRule(pattern=name, directory_only=True, negated=False) for name in _DEFAULT_IGNORES]
+        rules = [
+            _IgnoreRule(pattern=name, directory_only=True, negated=False)
+            for name in _DEFAULT_IGNORES
+        ]
         gitignore = self.repo_root / ".gitignore"
         if not gitignore.exists():
             return rules

@@ -58,7 +58,9 @@ def test_scan_repo_runs_parsers_and_aggregates_errors_without_crashing(
     tmp_path: Path, monkeypatch
 ) -> None:
     repo = _copy_fixture(tmp_path, "basic")
-    monkeypatch.setattr("depaudit.scan.discover_parsers", lambda: [_ExplodingParser(), _GoodParser()])
+    monkeypatch.setattr(
+        "depaudit.scan.discover_parsers", lambda: [_ExplodingParser(), _GoodParser()]
+    )
 
     result = scan_repo(repo)
 
@@ -110,7 +112,9 @@ def test_collect_candidate_files_skips_default_junk_directories(tmp_path: Path) 
     for dirname in skipped_dirs:
         junk = repo / dirname
         junk.mkdir(parents=True, exist_ok=True)
-        (junk / "package.json").write_text('{"dependencies": {"left-pad": "1.3.0"}}', encoding="utf-8")
+        (junk / "package.json").write_text(
+            '{"dependencies": {"left-pad": "1.3.0"}}', encoding="utf-8"
+        )
 
     (repo / "service").mkdir()
     (repo / "service" / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
