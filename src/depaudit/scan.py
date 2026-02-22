@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -73,30 +74,47 @@ class RepoScanner:
                 candidates.append(path)
         return candidates
 
-    def scan(self) -> ScanResult:
+    def scan(self, max_workers: int | None = None) -> ScanResult:
         files = self.collect_candidate_files()
         dependencies: list[Dependency] = []
         errors: list[str] = []
+        package_roots: set[str] = set()
 
-        for parser in discover_parsers():
-            matches = parser.detect(files)
+        parsers = discover_parsers()
+        parse_jobs: list[tuple[int, str, object, Path]] = []
+        for parser_index, parser in enumerate(parsers):
+            parser_name = parser.__class__.__name__
+            matches = sorted(parser.detect(files), key=lambda path: path.as_posix())
             for manifest in matches:
-                try:
-                    dependencies.extend(parser.parse(manifest))
-                except Exception as exc:  # pragma: no cover - explicit defensive behavior
-                    rel_path = manifest.relative_to(self.repo_root).as_posix()
-                    errors.append(
-                        f"{parser.__class__.__name__} failed to parse {rel_path}: {exc}"
-                    )
+                package_roots.add(manifest.parent.relative_to(self.repo_root).as_posix() or ".")
+                parse_jobs.append((parser_index, parser_name, parser, manifest))
+
+        if parse_jobs:
+            worker_count = max_workers if max_workers is not None else min(32, len(parse_jobs))
+            future_map: dict[Future[list[Dependency]], tuple[int, str, Path]] = {}
+            with ThreadPoolExecutor(max_workers=worker_count) as pool:
+                for parser_index, parser_name, parser, manifest in parse_jobs:
+                    future = pool.submit(parser.parse, manifest)
+                    future_map[future] = (parser_index, parser_name, manifest)
+
+                for future, (_, parser_name, manifest) in sorted(
+                    future_map.items(), key=lambda item: (item[1][0], item[1][2].as_posix())
+                ):
+                    try:
+                        dependencies.extend(future.result())
+                    except Exception as exc:  # pragma: no cover - explicit defensive behavior
+                        rel_path = manifest.relative_to(self.repo_root).as_posix()
+                        errors.append(f"{parser_name} failed to parse {rel_path}: {exc}")
 
         return ScanResult.from_parts(
             repo_root=self.repo_root,
             dependencies=dependencies,
-            errors=errors,
+            errors=sorted(errors),
             stats={
                 "files_scanned": len(files),
                 "dependencies_found": len(dependencies),
                 "parse_errors": len(errors),
+                "package_roots": len(package_roots),
             },
         )
 
@@ -120,5 +138,5 @@ class RepoScanner:
         return ignored
 
 
-def scan_repo(repo_root: Path) -> ScanResult:
-    return RepoScanner(repo_root).scan()
+def scan_repo(repo_root: Path, max_workers: int | None = None) -> ScanResult:
+    return RepoScanner(repo_root).scan(max_workers=max_workers)

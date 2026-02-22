@@ -56,3 +56,45 @@ def test_cli_export_rejects_unsupported_format(tmp_path: Path) -> None:
 
     assert result.exit_code == 1
     assert "Unsupported format" in result.stdout
+
+
+def test_cli_export_writes_depaudit_json(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\n", encoding="utf-8")
+    out = tmp_path / "depaudit.json"
+
+    result = runner.invoke(app, ["export", str(tmp_path), "--out", str(out)])
+
+    assert result.exit_code == 0
+    assert out.exists()
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["dependencies"][0]["name"] == "requests"
+
+
+def test_cli_diff_json(tmp_path: Path) -> None:
+    (tmp_path / "requirements.txt").write_text("requests==2.31.0\nflask==3.0.0\n", encoding="utf-8")
+    baseline = tmp_path / "depaudit.json"
+    baseline.write_text(
+        json.dumps(
+            {
+                "dependencies": [
+                    {
+                        "ecosystem": "pypi",
+                        "name": "requests",
+                        "version": "2.30.0",
+                        "source_file": str((tmp_path / "requirements.txt").resolve()),
+                        "scope": None,
+                        "direct": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["diff", str(tmp_path), "--baseline", str(baseline), "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["version_changes"][0]["name"] == "requests"
+    assert payload["added"][0]["name"] == "flask"
+    assert payload["removed"] == []
